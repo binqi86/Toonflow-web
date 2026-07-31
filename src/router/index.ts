@@ -44,6 +44,10 @@ const router = createRouter({
           component: () => import("@/views/scriptAgent/index.vue"),
         },
         {
+          path: "/musicAgent",
+          component: () => import("@/views/musicAgent/index.vue"),
+        },
+        {
           path: "/cornerScape",
           component: () => import("@/views/cornerScape/index.vue"),
         },

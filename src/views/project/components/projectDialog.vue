@@ -17,13 +17,14 @@
               <t-select v-model="formState.projectType" :placeholder="$t('workbench.project.dialog.selectType')">
                 <t-option key="基于小说原文" :label="$t('workbench.project.dialog.basedOnNovel')" value="novel" />
                 <t-option key="基于剧本" :label="$t('workbench.project.dialog.basedOnScript')" value="script" />
+                <t-option key="音乐MV" label="音乐MV" value="music_mv" />
               </t-select>
             </t-form-item>
             <t-form-item :label="$t('workbench.project.dialog.projectName')">
               <t-input v-model="formState.name" :placeholder="$t('workbench.project.dialog.projectNamePh')" />
             </t-form-item>
-            <t-form-item :label="$t('workbench.project.dialog.novelType')">
-              <t-input v-model="formState.type" :placeholder="$t('workbench.project.dialog.novelTypePh')" />
+            <t-form-item :label="isMusicMv ? '音乐风格' : $t('workbench.project.dialog.novelType')">
+              <t-input v-model="formState.type" :placeholder="isMusicMv ? '例如:流行、摇滚、民谣' : $t('workbench.project.dialog.novelTypePh')" />
             </t-form-item>
             <t-form-item :label="$t('workbench.project.dialog.modelData')">
               <div class="ac" style="gap: 5px; width: 100%">
@@ -46,11 +47,11 @@
             <t-form-item :label="$t('workbench.project.dialog.videoRatio')">
               <t-select v-model="formState.videoRatio" :options="RATIO_OPTIONS" />
             </t-form-item>
-            <t-form-item :label="$t('workbench.project.dialog.novelIntro')">
+            <t-form-item :label="isMusicMv ? '歌曲简介' : $t('workbench.project.dialog.novelIntro')">
               <t-textarea
                 v-model="formState.intro"
                 :autosize="{ minRows: 3, maxRows: 6 }"
-                :placeholder="$t('workbench.project.dialog.novelIntroPh')" />
+                :placeholder="isMusicMv ? '填写歌曲/演唱会的背景与风格描述' : $t('workbench.project.dialog.novelIntroPh')" />
             </t-form-item>
           </t-form>
         </div>
@@ -382,6 +383,8 @@ const DEFAULT_TAB_DATA: () => Data[] = () => [
 
 const isEdit = computed(() => !!props.projectData);
 
+const isMusicMv = computed(() => formState.value.projectType === "music_mv");
+
 // ===== 常量 =====
 const RATIO_OPTIONS = [
   { value: "16:9", label: "16:9" },
@@ -420,13 +423,13 @@ function handleCancel() {
 
 function handleOk() {
   if (!formState.value.name) return window.$message.warning($t("workbench.project.msg.enterProjectName"));
-  if (!formState.value.type) return window.$message.warning($t("workbench.project.msg.enterProjectType"));
+  if (!formState.value.type) return window.$message.warning(isMusicMv.value ? "请输入音乐风格" : $t("workbench.project.msg.enterProjectType"));
   if (!formState.value.imageModel) return window.$message.warning($t("workbench.project.msg.enterImageModel"));
   if (!formState.value.videoModel) return window.$message.warning($t("workbench.project.msg.enterVideoModel"));
   if (!formState.value.artStyle) return window.$message.warning($t("workbench.project.msg.enterArtStyle"));
-  if (!formState.value.directorManual) return window.$message.warning($t("workbench.project.msg.directorManual"));
+  if (!formState.value.directorManual && !isMusicMv.value) return window.$message.warning($t("workbench.project.msg.directorManual"));
   if (!formState.value.videoRatio) return window.$message.warning($t("workbench.project.msg.enterVideoRatio"));
-  if (!formState.value.intro) return window.$message.warning($t("workbench.project.msg.enterProjectIntro"));
+  if (!formState.value.intro) return window.$message.warning(isMusicMv.value ? "请输入歌曲简介" : $t("workbench.project.msg.enterProjectIntro"));
   if (!formState.value.imageQuality) return window.$message.warning($t("workbench.project.msg.enterProjectQuality"));
   if (!formState.value.mode) return window.$message.warning($t("workbench.project.msg.selectMode"));
   if (isEdit.value) {
