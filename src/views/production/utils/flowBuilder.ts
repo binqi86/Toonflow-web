@@ -53,6 +53,9 @@ export interface Storyboard {
   reason?: string;
   videoDesc: string;
   shouldGenerateImage: number;
+  audioUrl?: string;
+  audioStart?: number | null;
+  audioEnd?: number | null;
 }
 
 interface VideoList {

@@ -12,9 +12,13 @@
             </template>
           </t-image>
           <t-tooltip theme="primary" v-else-if="item.fileType == 'audio'" :content="item?.prompt || ''">
-            <div class="mediaPreview audioPreview">
+            <div class="mediaPreview audioPreview" @click.stop="toggleAudioPlay(item.src)">
               <i-acoustic size="20" />
               <span class="mediaLabel">音频</span>
+              <div class="audioPlayBtn">
+                <i-pause v-if="isAudioPlaying(item.src)" size="16" />
+                <i-play v-else size="16" />
+              </div>
             </div>
           </t-tooltip>
           <div v-else-if="item.fileType == 'video'" class="mediaPreview videoPreview">
@@ -50,9 +54,13 @@
                 </div>
               </template>
             </t-image>
-            <div v-else-if="imageList?.[index]?.fileType == 'audio'" class="mediaPreview audioPreview">
+            <div v-else-if="imageList?.[index]?.fileType == 'audio'" class="mediaPreview audioPreview" @click.stop="toggleAudioPlay(imageList?.[index]?.src)">
               <i-acoustic size="20" />
               <span class="mediaLabel">音频</span>
+              <div class="audioPlayBtn">
+                <i-pause v-if="isAudioPlaying(imageList?.[index]?.src)" size="16" />
+                <i-play v-else size="16" />
+              </div>
             </div>
             <div v-else-if="imageList?.[index]?.fileType == 'video'" class="mediaPreview videoPreview">
               <video class="uploadPreview" :src="imageList?.[index]!.src" preload="metadata" muted />
@@ -111,10 +119,57 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onUnmounted } from "vue";
 import "@/views/production/components/workbench/type/type";
 import assetsCheck, { type AssetType, type ClipMediaType } from "@/utils/assetsCheck";
 import axios from "@/utils/axios";
+import settingStore from "@/stores/setting";
+
+const { baseUrl } = storeToRefs(settingStore());
+
+/** 音频参考点击播放/暂停，同一时间只播放一段 */
+const audioEl = new Audio();
+const currentAudioKey = ref<string | null>(null);
+/** 相对路径补全为完整 URL，避免跨端口时音频 404 无声 */
+function toFullAudioUrl(src?: string): string | undefined {
+  if (!src) return src;
+  if (/^(https?:)?\/\//.test(src) || src.startsWith("data:") || src.startsWith("blob:")) return src;
+  if (src.startsWith("/")) {
+    const origin = baseUrl.value.replace(/\/api\/?$/, "");
+    return `${origin}${src}`;
+  }
+  return src;
+}
+function isAudioPlaying(src?: string): boolean {
+  return !!src && currentAudioKey.value === src && !audioEl.paused;
+}
+function toggleAudioPlay(src?: string) {
+  if (!src) return;
+  const url = toFullAudioUrl(src);
+  if (!url) return;
+  if (currentAudioKey.value === src) {
+    if (audioEl.paused) {
+      audioEl.play().catch((err) => console.error("[audioPreview] 播放失败:", err));
+    } else {
+      audioEl.pause();
+    }
+    return;
+  }
+  audioEl.pause();
+  audioEl.src = url;
+  audioEl.play().catch((err) => console.error("[audioPreview] 播放失败:", err));
+  currentAudioKey.value = src;
+}
+audioEl.addEventListener("ended", () => {
+  currentAudioKey.value = null;
+});
+audioEl.addEventListener("error", () => {
+  console.error("[audioPreview] 音频加载失败:", audioEl.error?.message);
+});
+onUnmounted(() => {
+  audioEl.pause();
+  audioEl.removeAttribute("src");
+});
 
 const props = defineProps<{
   mode: VideoMode;
@@ -365,6 +420,27 @@ function splitImage(index: number) {
       &.audioPreview {
         background: var(--td-bg-color-secondarycontainer);
         color: var(--td-brand-color);
+        position: relative;
+        cursor: pointer;
+        .audioPlayBtn {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          transform: translate(-50%, -50%);
+          width: 26px;
+          height: 26px;
+          border-radius: 50%;
+          background: rgba(0, 0, 0, 0.55);
+          color: #fff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          opacity: 0;
+          transition: opacity 0.2s;
+        }
+        &:hover .audioPlayBtn {
+          opacity: 1;
+        }
       }
       &.videoPreview {
         background: #000;

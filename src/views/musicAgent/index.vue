@@ -12,17 +12,18 @@
               <i-music size="14" />
               <span class="audioName" :title="audioName">{{ audioName }}</span>
             </div>
-            <t-button
-              class="genBtn"
-              theme="primary"
-              size="small"
-              :loading="generatingScript"
-              :disabled="!lyrics.length || generatingScript"
-              @click="generateMvScript">
-              <template #icon><i-film size="14" /></template>
-              生成MV剧本
-            </t-button>
             <input ref="audioInputRef" type="file" accept="audio/*" style="display: none" @change="handleAudioFileChange" />
+          </div>
+          <div class="lyricsInputBar" v-if="audioUploaded">
+            <textarea
+              v-model="lyricsTextInput"
+              class="lyricsTextarea"
+              :class="{ expanded: lyricsInputExpanded }"
+              placeholder="在此粘贴歌词文本，AI 将根据音频时间轴自动对齐时间戳..."
+              :rows="lyricsInputExpanded ? 8 : 2"
+              @focus="expandLyricsInput"
+              @blur="collapseLyricsInput"
+            ></textarea>
           </div>
           <t-chat-list :clear-history="false">
             <t-chat-message
@@ -103,6 +104,9 @@
       </Pane>
       <Pane :size="70" :min-size="30" class="data">
         <div class="tabsWrapper">
+          <div v-if="flowData.mvStyle" class="styleBadge">
+            <i-tag size="small" theme="primary">MV风格：{{ mvStyleLabel(flowData.mvStyle) }}</i-tag>
+          </div>
           <t-tabs v-model="currentTable">
             <t-tab-panel :value="1" :label="`歌词时间线 (${lyrics.length})`">
               <div class="panelContent">
@@ -118,22 +122,10 @@
                 </div>
               </div>
             </t-tab-panel>
-            <t-tab-panel :value="2" :label="'MV导演规划'">
+            <t-tab-panel :value="2" :label="'剧本'">
               <div class="panelContent">
-                <MdPreview
-                  v-if="flowData.mvDirection"
-                  :modelValue="flowData.mvDirection"
-                  :theme="themeSetting.mode === 'auto' ? undefined : themeSetting.mode" />
-                <t-empty v-else :title="'暂无MV导演规划'" />
-              </div>
-            </t-tab-panel>
-            <t-tab-panel :value="3" :label="'歌词-场景映射'">
-              <div class="panelContent">
-                <MdPreview
-                  v-if="flowData.lyricSceneMap"
-                  :modelValue="flowData.lyricSceneMap"
-                  :theme="themeSetting.mode === 'auto' ? undefined : themeSetting.mode" />
-                <t-empty v-else :title="'暂无场景映射'" />
+                <div v-if="flowData.script" class="scriptContent">{{ flowData.script }}</div>
+                <t-empty v-else :title="'暂无剧本，完成歌词转录和MV场景风格设计后自动生成'" />
               </div>
             </t-tab-panel>
           </t-tabs>
@@ -144,9 +136,6 @@
 </template>
 
 <script setup lang="ts">
-import { MdPreview } from "md-editor-v3";
-import settingStore from "@/stores/setting";
-const { themeSetting } = storeToRefs(settingStore());
 import { Splitpanes, Pane } from "splitpanes";
 import axios from "@/utils/axios";
 import type { ChatMessagesData } from "@tdesign-vue-next/chat";
@@ -164,6 +153,7 @@ const thinkLevelOptions = [
 
 const currentTable = ref(1);
 const inputValue = ref("");
+const lyricsTextInput = ref("");
 
 const defMsg: ChatMessagesData[] = [
   {
@@ -192,6 +182,18 @@ onMounted(() => {
   musicAgentStore().connect();
 });
 
+// AI 完成后刷新歌词，并从后端重新加载剧本和设计（子Agent/工具已直接保存到后端）
+watch(status, (newStatus) => {
+  if (newStatus === "complete" || newStatus === "idle") {
+    getLyrics();
+    // 剧本和MV场景风格设计由子Agent/工具在服务端保存，完成后重新拉取显示（始终用最新）
+    axios.post("/musicAgent/getMusicFlowData", { projectId: project.value?.id }).then(({ data }) => {
+      if (data?.script) flowData.value.script = data.script;
+      if (data?.mvDesign) flowData.value.mvDesign = data.mvDesign;
+    }).catch(() => {});
+  }
+});
+
 const handleActions = {
   suggestion: (data?: any) => {
     musicAgentStore().chat(data?.content?.prompt);
@@ -199,7 +201,10 @@ const handleActions = {
 };
 
 function handleSend(text: string) {
-  musicAgentStore().chat(text);
+  // 如果有歌词文本，拼接到消息中发送给 AI
+  const lyricsText = lyricsTextInput.value.trim();
+  const finalText = lyricsText ? `${text}\n\n## 用户提供的歌词文本（请根据音频时间分段对齐时间戳）\n${lyricsText}` : text;
+  musicAgentStore().chat(finalText);
   inputValue.value = "";
 }
 function handleStop() {
@@ -232,6 +237,16 @@ function handleReconnect() {
 }
 
 const loadingHistory = ref(false);
+const lyricsInputExpanded = ref(false);
+function expandLyricsInput() {
+  lyricsInputExpanded.value = true;
+}
+function collapseLyricsInput() {
+  // 收起时如果没内容则折叠
+  if (!lyricsTextInput.value.trim()) {
+    lyricsInputExpanded.value = false;
+  }
+}
 async function getHistory() {
   loadingHistory.value = true;
   const { data } = await axios.post(`/agents/getMemory`, {
@@ -307,8 +322,10 @@ async function getFlowData() {
   if (!project.value?.id) return;
   const { data } = await axios.post("/musicAgent/getMusicFlowData", { projectId: project.value?.id });
   if (data) {
-    flowData.value.mvDirection = data.mvDirection || "";
     flowData.value.lyricSceneMap = data.lyricSceneMap || "";
+    flowData.value.mvStyle = data.mvStyle || "";
+    flowData.value.script = data.script || "";
+    flowData.value.mvDesign = data.mvDesign || null;
   }
 }
 
@@ -320,31 +337,13 @@ function formatTime(sec: number) {
 }
 
 // ---- 生成MV剧本 ----
-const generatingScript = ref(false);
-const router = useRouter();
-async function generateMvScript() {
-  if (!lyrics.value.length) {
-    window.$message.warning("请先让音乐Agent完成歌词转录");
-    return;
-  }
-  generatingScript.value = true;
-  try {
-    const { data } = await axios.post("/musicAgent/generateMvScript", { projectId: project.value?.id });
-    window.$message.success(`MV剧本「${data.name}」已生成，可进入生产流程制作分镜与视频`);
-    router.push("/production");
-  } catch (err: any) {
-    window.$message.error(err?.message ?? "生成MV剧本失败");
-  } finally {
-    generatingScript.value = false;
-  }
-}
-
 function segmentTypeLabel(type: string) {
   const map: Record<string, string> = {
     lip_sync: "对口型",
     narrative: "叙事",
     atmosphere: "氛围",
     crowd: "观众",
+    dance: "舞蹈参考",
   };
   return map[type] || type;
 }
@@ -355,8 +354,29 @@ function segmentTypeTheme(type: string) {
     narrative: "primary",
     atmosphere: "default",
     crowd: "success",
+    dance: "danger",
   };
   return map[type] || "default";
+}
+
+// MV风格中文名
+const MV_STYLE_NAMES: Record<string, string> = {
+  concert: "演唱会现场版",
+  story: "剧情叙事版",
+  xianxia: "仙侠实景版",
+  art: "视觉艺术版",
+  onetake: "一镜到底版",
+  dance: "舞蹈版",
+  street: "街头潮流版",
+  bwfilm: "黑白电影版",
+  scifi: "CGI科幻版",
+  minimal: "极简抒情版",
+  shortfilm: "微电影版",
+  travel: "实景旅行版",
+  comedy: "搞笑整活版",
+};
+function mvStyleLabel(style: string) {
+  return MV_STYLE_NAMES[style] || style;
 }
 </script>
 
@@ -392,8 +412,51 @@ function segmentTypeTheme(type: string) {
     display: flex;
     flex-direction: column;
   }
+  .lyricsInputBar {
+    flex-shrink: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--td-border-level-1-color);
+    .lyricsTextarea {
+      width: 100%;
+      border: 1px solid var(--td-border-level-2-color);
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--td-text-color-primary);
+      background: var(--td-bg-color-container);
+      resize: vertical;
+      transition: height 0.2s;
+      &:focus {
+        outline: none;
+        border-color: var(--td-brand-color);
+      }
+      &::placeholder {
+        color: var(--td-text-color-placeholder);
+      }
+    }
+  }
   .tabsWrapper {
     height: 100%;
+    position: relative;
+    .styleBadge {
+      position: absolute;
+      top: 8px;
+      right: 16px;
+      z-index: 10;
+    }
+    :deep(.t-tabs) {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      .t-tabs__content {
+        flex: 1;
+        min-height: 0;
+        .t-tab-panel {
+          height: 100%;
+        }
+      }
+    }
     .panelContent {
       height: 100%;
       overflow-y: auto;
@@ -426,6 +489,14 @@ function segmentTypeTheme(type: string) {
         flex-shrink: 0;
       }
     }
+  }
+  .scriptContent {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.7;
+    font-size: 13px;
+    color: var(--td-text-color-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
   }
   :deep(.t-chat-list) {
     flex: 1;

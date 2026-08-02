@@ -292,12 +292,13 @@ function getTrackUploadInfo(track: TrackItem, filterEmpty = false) {
 
   if (track.id === activeTrackId) {
     const items = props.imageList as UploadItem[];
-    return (filterEmpty ? items.filter((item) => Boolean(item.src)) : items).map(({ id, sources }) => ({
+    return (filterEmpty ? items.filter((item) => Boolean(item.src)) : items).map(({ id, sources, fileType }) => ({
       id,
       sources: (sources ?? "storyboard") as string,
+      fileType,
     }));
   }
-  return track.medias.filter((m) => !filterEmpty || Boolean(m.src)).map(({ id, sources }) => ({ id, sources: (sources ?? "storyboard") as string }));
+  return track.medias.filter((m) => !filterEmpty || Boolean(m.src)).map(({ id, sources, fileType }) => ({ id, sources: (sources ?? "storyboard") as string, fileType }));
 }
 const generateVideoLoad = ref(false);
 /** 批量为已勾选轨道生成视频 */

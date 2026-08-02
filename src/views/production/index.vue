@@ -101,6 +101,7 @@
 
 <script setup lang="ts">
 import { useLocalStorage, useEventListener } from "@vueuse/core";
+import { useRoute } from "vue-router";
 import { VueFlow, useVueFlow } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
 import { Controls } from "@vue-flow/controls";
@@ -196,6 +197,7 @@ const { episodesId, flowData, status } = storeToRefs(productionAgentStore());
 provide("episodesId", episodesId);
 
 const loading = ref(false);
+const route = useRoute();
 
 // 节点位置
 const nodePositions = ref<Record<string, { x: number; y: number }>>({
@@ -305,7 +307,13 @@ async function getScriptData() {
     value: ep.id,
   }));
   if (episodesOptions.value.length) {
-    episodesId.value = episodesOptions.value[0].value;
+    // 优先使用 URL 中携带的 scriptId（从音乐页跳转过来时）
+    const queryScriptId = Number(route.query.scriptId);
+    if (Number.isFinite(queryScriptId) && episodesOptions.value.some((ep) => ep.value === queryScriptId)) {
+      episodesId.value = queryScriptId;
+    } else {
+      episodesId.value = episodesOptions.value[0].value;
+    }
   }
   if (status.value !== "pending" && status.value !== "streaming") {
     episodesId.value && (await productionAgentStore().getFlowData());

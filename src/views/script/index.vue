@@ -50,7 +50,7 @@
             <span class="content">{{ item.content }}</span>
 
             <t-loading v-if="item?.extractState == 0" :text="$t('workbench.script.msg.extracting')" size="small"></t-loading>
-            <t-loading v-if="item?.extractState == 2" :text="$t('workbench.script.msg.waitExtract')" size="small"></t-loading>
+            <t-tag v-else-if="item?.extractState == 2" theme="primary" variant="light" size="small">{{ $t("workbench.script.msg.waitExtract") }}</t-tag>
             <t-tooltip :content="item.errorReason" v-if="item?.extractState == -1" theme="light">
               <t-tag theme="danger" size="small">{{ $t("workbench.script.msg.extractFailed") }}</t-tag>
             </t-tooltip>

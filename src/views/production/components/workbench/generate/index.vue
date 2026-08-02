@@ -4,6 +4,9 @@
       <div class="uploadBtn">
         <imageSelect :mode="modelParmas.mode as VideoMode" v-model="imageList" :storyboard-list="storyboardList" />
       </div>
+      <t-button size="small" variant="outline" class="autoAudioBtn" :loading="bindingAudio" @click="autoBindAudio">
+        自动绑定音频
+      </t-button>
     </div>
     <div class="modelSelect">
       <modeMenu v-model="modelParmas" :modeOptions="modeOptions" :trackId="currentTrack?.id" :modeList="modeList" @modeChange="modeChange" />
@@ -277,11 +280,26 @@ async function getGenerateData() {
     // 批量向后端请求文件路径对应的完整 URL
     await warmUpUrls(pid, sid);
     // 将本地缓存回写到 trackList，确保优先使用缓存数据（src 已解析为完整 URL）
+    // 音频参考（storyboard 来源）以后端最新绑定为准，避免重新绑定后旧音频段 ID/URL 覆盖新结果
     data.trackList.forEach((track: TrackItem) => {
       if (track.id == null) return;
       const cached = getCache(pid, sid, track.id);
       if (cached?.length) {
-        track.medias = cached as unknown as TrackMedia[];
+        const freshStoryAudio = (track.medias ?? []).filter((m) => m.fileType === "audio" && m.sources === "storyboard");
+        const merged: any[] = [...cached];
+        const cachedAudioIndices = merged
+          .map((m, i) => (m.fileType === "audio" && m.sources === "storyboard" ? i : -1))
+          .filter((i) => i >= 0);
+        // 原位替换为最新音频段；后端音频多于缓存时补到末尾
+        cachedAudioIndices.forEach((cachedIdx, k) => {
+          merged[cachedIdx] = k < freshStoryAudio.length ? freshStoryAudio[k] : null;
+        });
+        for (let k = cachedAudioIndices.length; k < freshStoryAudio.length; k++) {
+          merged.push(freshStoryAudio[k]);
+        }
+        track.medias = merged.filter((m) => m != null) as TrackMedia[];
+        // 回写缓存，确保切换到其他轨道时也能读到最新音频（medias watch 只覆盖当前轨道）
+        setCache(pid, sid, track.id, track.medias as unknown as UploadItem[]);
       }
     });
     // 整体赋值触发响应式
@@ -289,6 +307,26 @@ async function getGenerateData() {
   }
 
   modelParmas.value.duration = clampDuration(data.trackList?.[activeTrackIndex.value]?.duration);
+}
+
+// 自动按分镜时长截取音频并绑定
+const bindingAudio = ref(false);
+async function autoBindAudio() {
+  if (!episodesId.value || !project.value?.id) return;
+  bindingAudio.value = true;
+  try {
+    const { data } = await axios.post("/production/workbench/autoBindSceneAudio", {
+      projectId: project.value?.id,
+      scriptId: episodesId.value,
+    });
+    window.$message.success(data?.message || "音频绑定完成");
+    // 刷新数据，让工作台显示音频参考
+    await getGenerateData();
+  } catch (err: any) {
+    window.$message.error(err?.message ?? "音频绑定失败");
+  } finally {
+    bindingAudio.value = false;
+  }
 }
 /** 提示词失焦时保存到后端 */
 function handlePromptBlur() {
@@ -301,11 +339,11 @@ function handlePromptBlur() {
 async function genText() {
   const track = currentTrack.value;
   if (track.id == null || track.state === "生成中") return;
-  let info: { id: number; sources: string }[] = [];
+  let info: { id: number; sources: string; fileType?: string }[] = [];
   const currentTrackId = track.id;
   const rawMedias = (track.medias ?? []) as UploadItem[];
   if (modelParmas.value.mode == "text") {
-    info = rawMedias.map(({ id, sources }) => ({ id: id!, sources }));
+    info = rawMedias.map(({ id, sources, fileType }) => ({ id: id!, sources, fileType }));
   } else {
     const frameMode = ["startEndRequired", "endFrameOptional", "startFrameOptional"];
     const preSliced = frameMode.includes(modelParmas.value.mode)
@@ -313,7 +351,7 @@ async function genText() {
       : modelParmas.value.mode === "singleImage"
         ? rawMedias.slice(0, 1)
         : rawMedias;
-    const filtered = preSliced.filter((item) => typeof item.id === "number" && !isNaN(item.id)).map(({ id, sources }) => ({ id: id!, sources }));
+    const filtered = preSliced.filter((item) => typeof item.id === "number" && !isNaN(item.id)).map(({ id, sources, fileType }) => ({ id: id!, sources, fileType }));
     if (frameMode.includes(modelParmas.value.mode)) info = filtered.slice(0, 2);
     else if (modelParmas.value.mode === "singleImage") info = filtered.slice(0, 1);
     else info = filtered;
@@ -406,7 +444,7 @@ async function generateVideo() {
                       : imageList.value;
                   const filtered = preSliced
                     .filter((item) => Boolean(item.src) && typeof item.id === "number" && !isNaN(item.id))
-                    .map(({ id, sources }) => ({ id, sources }));
+                    .map(({ id, sources, fileType }) => ({ id, sources, fileType }));
                   if (frameMode.includes(modelParmas.value.mode)) return filtered.slice(0, 2);
                   if (modelParmas.value.mode === "singleImage") return filtered.slice(0, 1);
                   return filtered;
@@ -542,6 +580,9 @@ onUnmounted(() => {
   gap: 16px;
   overflow-y: auto;
   .referenceImage {
+    .autoAudioBtn {
+      margin-left: 8px;
+    }
   }
   .modelSelect {
   }

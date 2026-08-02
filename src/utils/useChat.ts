@@ -211,8 +211,8 @@ export function useChat(options: UseChatOptions) {
 
   const parseXmlTag = (text: string, tag: string) => {
     const escapedTag = escapeRegExp(tag);
-    // Match opening tag with optional attributes: <tag> or <tag attr="val">
-    const openRegex = new RegExp(`<${escapedTag}(\\s[^>]*)?>`, "g");
+    // Match opening tag with optional attributes: <tag> or <tag attr="val">, including self-closing <tag />
+    const openRegex = new RegExp(`<${escapedTag}(\\s[^>]*)?(\\s*/)?>`, "g");
     let lastMatch: RegExpExecArray | null = null;
     let m: RegExpExecArray | null;
     while ((m = openRegex.exec(text)) !== null) {
@@ -221,11 +221,13 @@ export function useChat(options: UseChatOptions) {
     if (!lastMatch) return null;
 
     const attrs = parseXmlAttributes(lastMatch[1] ?? "");
+    const isSelfClosing = lastMatch[0].trim().endsWith("/>");
     const contentStart = lastMatch.index + lastMatch[0].length;
     const closeTag = `</${tag}>`;
     const closeIndex = text.indexOf(closeTag, contentStart);
-    const isComplete = closeIndex !== -1;
-    const value = text.slice(contentStart, isComplete ? closeIndex : text.length).trim();
+    const isComplete = closeIndex !== -1 || isSelfClosing;
+    // 自闭合标签的 value 为空，数据在 attrs 中
+    const value = isSelfClosing ? "" : text.slice(contentStart, isComplete ? closeIndex : text.length).trim();
     const children = parseXmlChildren(value);
 
     return {
@@ -244,6 +246,8 @@ export function useChat(options: UseChatOptions) {
       // Match tags with or without attributes
       sanitized = sanitized.replace(new RegExp(`<${escapedTag}(?:\\s[^>]*)?>[\\s\\S]*?<\\/${escapedTag}>`, "g"), "");
       sanitized = sanitized.replace(new RegExp(`<${escapedTag}(?:\\s[^>]*)?>[\\s\\S]*$`, "g"), "");
+      // 处理流式场景下未闭合的标签（没有 > 结尾），如 <mvSegment type="lip_sync"
+      sanitized = sanitized.replace(new RegExp(`<${escapedTag}(?:\\s[^>]*)?$`, "g"), "");
     }
 
     return sanitized;
@@ -279,13 +283,18 @@ export function useChat(options: UseChatOptions) {
       const parsed = parseXmlTag(rawText, tag);
       if (parsed === null) continue;
 
-      const { value, isComplete } = parsed;
+      const { value, isComplete, attrs } = parsed;
       const eventStatus = isComplete ? (status === "error" || status === "stop" ? status : "complete") : status;
 
-      const shouldEmit = prevState[tag] !== value || eventStatus === "complete";
+      // 用 value + attrs 作为唯一标识，避免重复发射同一条数据
+      const attrsKey = `${tag}_attrs`;
+      const prevAttrs = prevState[attrsKey] ?? "";
+      const curAttrs = JSON.stringify(attrs);
+      const shouldEmit = prevState[tag] !== value || prevAttrs !== curAttrs;
       if (!shouldEmit) continue;
 
       nextState[tag] = value;
+      nextState[attrsKey] = curAttrs;
       nextMessageData[tag] = value;
       xmlData.value = { ...xmlData.value, [tag]: value };
       changed = true;

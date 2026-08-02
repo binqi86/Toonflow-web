@@ -65,6 +65,12 @@
                     </div>
                   </t-tooltip>
                 </div>
+                <div v-if="item.audioUrl" class="frameAudio">
+                  <audio :src="item.audioUrl" controls preload="metadata" style="width: 100%; height: 28px"></audio>
+                  <div v-if="item.audioStart != null && item.audioEnd != null" class="audioTime">
+                    {{ formatAudioTime(item.audioStart) }} - {{ formatAudioTime(item.audioEnd) }}
+                  </div>
+                </div>
               </div>
               <div class="addBetween addBetween--right" :class="{ expanded: hoveredIndex === index }">
                 <t-button
@@ -257,6 +263,13 @@ const styleMaxSize = computed(() => {
   if (gridScale.value <= 1) return gridScale.value;
   else 1;
 });
+// 格式化音频时间（秒 -> MM:SS）
+function formatAudioTime(sec: number) {
+  if (sec == null || isNaN(sec)) return "--:--";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
 const generateLoading = ref(false);
 async function batchGenerateImage() {
   if (!selectedIds.value.length) return window.$message.warning("请先选择分镜面板");
@@ -533,6 +546,21 @@ function editInfo(item: Storyboard) {
     transition:
       transform 0.2s,
       box-shadow 0.2s;
+  }
+
+  .frameAudio {
+    margin-top: 4px;
+    width: 100%;
+    audio {
+      width: 100%;
+    }
+    .audioTime {
+      font-size: 11px;
+      color: var(--td-brand-color);
+      text-align: center;
+      font-family: monospace;
+      margin-top: 2px;
+    }
   }
 
   .frameImage {

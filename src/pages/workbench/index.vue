@@ -122,8 +122,8 @@ function shouldShowMenu(menu: any) {
   if (menu.nodelOnly) return pt === "novel";
   if (menu.musicOnly) return pt === "music_mv";
   if (pt === "music_mv") {
-    // 音乐项目只显示音乐Agent、生产、资产入口
-    return ["/production", "/assets"].includes(menu.path);
+    // 音乐项目显示：音乐Agent、剧本管理、塑角造景、生产、资产入口
+    return ["/script", "/cornerScape", "/production", "/assets"].includes(menu.path);
   }
   return true;
 }
