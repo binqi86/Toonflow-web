@@ -124,6 +124,13 @@
             </t-tab-panel>
             <t-tab-panel :value="2" :label="'剧本'">
               <div class="panelContent">
+                <div v-if="timeline" class="timelineInfo">
+                  <t-tag theme="primary" size="small" class="timelineTag">按歌词时间轴分组成 {{ timeline.groups }} 组</t-tag>
+                  <t-tag :theme="timeline.aligned ? 'success' : 'warning'" size="small" class="timelineTag">
+                    分组总时长 {{ formatDur(timeline.totalSpan) }} {{ timeline.aligned ? "=" : "≠" }} 音频总时长 {{ formatDur(timeline.audioDuration) }}
+                  </t-tag>
+                  <span v-if="timeline.scriptId" class="timelineHint">已按分组对齐剧本，可进入生产页导演规划（每组=一条视频）</span>
+                </div>
                 <div v-if="flowData.script" class="scriptContent">{{ flowData.script }}</div>
                 <t-empty v-else :title="'暂无剧本，完成歌词转录和MV场景风格设计后自动生成'" />
               </div>
@@ -190,9 +197,40 @@ watch(status, (newStatus) => {
     axios.post("/musicAgent/getMusicFlowData", { projectId: project.value?.id }).then(({ data }) => {
       if (data?.script) flowData.value.script = data.script;
       if (data?.mvDesign) flowData.value.mvDesign = data.mvDesign;
+      // 剧本生成完成后，自动按歌词时间轴构建分组并展示核对信息
+      if (data?.script) buildMvTimeline();
     }).catch(() => {});
   }
 });
+
+// ---- 时间线分组（buildTimeline）----
+const timeline = ref<{ groups: number; totalSpan: number; audioDuration: number; aligned: boolean; scriptId: number | null } | null>(null);
+
+async function buildMvTimeline() {
+  if (!project.value?.id || !flowData.value.script) return;
+  try {
+    const { data } = await axios.post("/musicAgent/buildTimeline", { projectId: project.value.id });
+    if (data?.groups) {
+      timeline.value = {
+        groups: data.groups.length,
+        totalSpan: data.totalSpan,
+        audioDuration: data.audioDuration,
+        aligned: data.aligned,
+        scriptId: data.scriptId ?? null,
+      };
+    }
+    // 展示对齐分组后的剧本（后端已存 mvTimelineScript）
+    const flowRes = await axios.post("/musicAgent/getMusicFlowData", { projectId: project.value.id });
+    if (flowRes?.data?.mvTimelineScript) flowData.value.script = flowRes.data.mvTimelineScript;
+  } catch {}
+}
+
+function formatDur(sec: number) {
+  if (sec === null || sec === undefined || !isFinite(sec)) return "--:--";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
 
 const handleActions = {
   suggestion: (data?: any) => {
@@ -326,6 +364,7 @@ async function getFlowData() {
     flowData.value.mvStyle = data.mvStyle || "";
     flowData.value.script = data.script || "";
     flowData.value.mvDesign = data.mvDesign || null;
+    if (data.script) buildMvTimeline();
   }
 }
 
@@ -497,6 +536,23 @@ function mvStyleLabel(style: string) {
     font-size: 13px;
     color: var(--td-text-color-primary);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .timelineInfo {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    border-radius: 6px;
+    background: var(--td-bg-color-container-hover);
+    .timelineTag {
+      margin-right: 0;
+    }
+    .timelineHint {
+      font-size: 12px;
+      color: var(--td-text-color-placeholder);
+    }
   }
   :deep(.t-chat-list) {
     flex: 1;

@@ -292,6 +292,7 @@ function handleEpisodesChange(value: unknown) {
     if (!(await confirmEpisodesSwitch())) return;
 
     episodesId.value = nextEpisodesId;
+    await ensureMvTimeline(episodesId.value);
     await productionAgentStore().getFlowData();
   })();
 }
@@ -316,9 +317,22 @@ async function getScriptData() {
     }
   }
   if (status.value !== "pending" && status.value !== "streaming") {
+    // 音乐MV：进入生产前确保时间线分组已构建（剧本对齐到分组，轨道时长/音频绑定按分组走）
+    await ensureMvTimeline(episodesId.value);
     episodesId.value && (await productionAgentStore().getFlowData());
     await productionAgentStore().getHistory();
   }
+}
+
+// 音乐MV：按歌词时间轴构建分组（幂等，可重复调用）
+async function ensureMvTimeline(scriptId?: number) {
+  if (project.value?.projectType !== "music_mv") return;
+  try {
+    await axios.post("/musicAgent/buildTimeline", {
+      projectId: project.value?.id,
+      scriptId,
+    });
+  } catch {}
 }
 
 async function layoutGraph(direction: "LR" | "TB" = "LR") {
