@@ -11,6 +11,7 @@ interface MusicFlowData {
   mvStyle: string;
   script: string;
   mvDesign: any;
+  lyricsAlignedBy: string;
 }
 
 function makeMusicAgentStore(projectId: string) {
@@ -23,6 +24,7 @@ function makeMusicAgentStore(projectId: string) {
       mvStyle: "",
       script: "",
       mvDesign: null,
+      lyricsAlignedBy: "",
     });
 
     // 用于去重的 Set，存储已发射的标签签名
@@ -44,6 +46,7 @@ function makeMusicAgentStore(projectId: string) {
         mvStyle: prev.mvStyle,
         script: "",
         mvDesign: prev.mvDesign,
+        lyricsAlignedBy: prev.lyricsAlignedBy,
       };
       structuredLyrics.value = [];
       emittedTags.clear();

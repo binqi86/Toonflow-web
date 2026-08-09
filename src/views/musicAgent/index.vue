@@ -13,17 +13,19 @@
               <span class="audioName" :title="audioName">{{ audioName }}</span>
             </div>
             <input ref="audioInputRef" type="file" accept="audio/*" style="display: none" @change="handleAudioFileChange" />
-          </div>
-          <div class="lyricsInputBar" v-if="audioUploaded">
-            <textarea
-              v-model="lyricsTextInput"
-              class="lyricsTextarea"
-              :class="{ expanded: lyricsInputExpanded }"
-              placeholder="在此粘贴歌词文本，AI 将根据音频时间轴自动对齐时间戳..."
-              :rows="lyricsInputExpanded ? 8 : 2"
-              @focus="expandLyricsInput"
-              @blur="collapseLyricsInput"
-            ></textarea>
+            <span class="audioBarDivider"></span>
+            <t-button v-if="!vocalUploaded" variant="outline" size="small" @click="triggerVocalUpload">
+              <template #icon><i-upload size="14" /></template>
+              纯人声（可选）
+            </t-button>
+            <div v-else class="audioInfo">
+              <i-music size="14" />
+              <span class="audioName" :title="vocalName">{{ vocalName }}</span>
+            </div>
+            <input ref="vocalInputRef" type="file" accept="audio/*" style="display: none" @change="handleVocalFileChange" />
+            <t-tooltip content="纯人声版用于口型驱动（可选）。如果想口型同步更准，建议上传与原曲时长一致的纯人声版；不上传则用原曲做口型参考。">
+              <span class="vocalTip">?</span>
+            </t-tooltip>
           </div>
           <t-chat-list :clear-history="false">
             <t-chat-message
@@ -108,15 +110,20 @@
             <i-tag size="small" theme="primary">MV风格：{{ mvStyleLabel(flowData.mvStyle) }}</i-tag>
           </div>
           <t-tabs v-model="currentTable">
-            <t-tab-panel :value="1" :label="`歌词时间线 (${lyrics.length})`">
+            <t-tab-panel :value="1" :label="`音乐时间线 (${lyrics.length})`">
               <div class="panelContent">
                 <t-empty v-if="!lyrics.length" :title="'暂无歌词，请先让音乐Agent转录'" />
-                <div v-else class="lyricsList">
-                  <div v-for="(item, index) in lyrics" :key="item.id || index" class="lyricRow">
-                    <div class="lyricTime">{{ formatTime(item.startTime) }} - {{ formatTime(item.endTime) }}</div>
-                    <div class="lyricText">{{ item.text }}</div>
-                    <div class="lyricSection">
-                      <t-tag v-if="item.segmentType" size="small" :theme="segmentTypeTheme(item.segmentType)">{{ segmentTypeLabel(item.segmentType) }}</t-tag>
+                <div v-else>
+                  <div v-if="flowData.lyricsAlignedBy === 'forced_aligner'" class="alignBadge">
+                    <i-tag size="small" theme="success">已用 Qwen3-ForcedAligner 精确对齐（毫秒级）</i-tag>
+                  </div>
+                  <div class="lyricsList">
+                    <div v-for="(item, index) in lyrics" :key="item.id || index" class="lyricRow">
+                      <div class="lyricTime">{{ formatTime(item.startTime) }} - {{ formatTime(item.endTime) }}</div>
+                      <div class="lyricText">{{ item.text }}</div>
+                      <div class="lyricSection">
+                        <t-tag v-if="item.segmentType" size="small" :theme="segmentTypeTheme(item.segmentType)">{{ segmentTypeLabel(item.segmentType) }}</t-tag>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -160,7 +167,6 @@ const thinkLevelOptions = [
 
 const currentTable = ref(1);
 const inputValue = ref("");
-const lyricsTextInput = ref("");
 
 const defMsg: ChatMessagesData[] = [
   {
@@ -170,7 +176,7 @@ const defMsg: ChatMessagesData[] = [
       {
         type: "text",
         status: "complete",
-        data: "你好，我是音乐MV制作助手。我可以帮你完成：歌词转录 → MV导演规划 → 歌词-场景映射。\n\n开始前请先上传歌曲音频。然后告诉我开始制作即可。",
+        data: "你好，我是音乐MV制作助手。我可以帮你完成：歌词转录 → MV导演风格 → 剧本。\n\n开始前请先上传歌曲音频，然后告诉我「开始制作」即可。转录完成后如需歌词，直接把歌词粘贴到对话中，我会按音频时间轴自动对齐。",
       },
       {
         type: "suggestion",
@@ -239,10 +245,8 @@ const handleActions = {
 };
 
 function handleSend(text: string) {
-  // 如果有歌词文本，拼接到消息中发送给 AI
-  const lyricsText = lyricsTextInput.value.trim();
-  const finalText = lyricsText ? `${text}\n\n## 用户提供的歌词文本（请根据音频时间分段对齐时间戳）\n${lyricsText}` : text;
-  musicAgentStore().chat(finalText);
+  // 歌词直接在对话中粘贴给 AI，由 AI 按音频时间轴对齐
+  musicAgentStore().chat(text);
   inputValue.value = "";
 }
 function handleStop() {
@@ -275,16 +279,6 @@ function handleReconnect() {
 }
 
 const loadingHistory = ref(false);
-const lyricsInputExpanded = ref(false);
-function expandLyricsInput() {
-  lyricsInputExpanded.value = true;
-}
-function collapseLyricsInput() {
-  // 收起时如果没内容则折叠
-  if (!lyricsTextInput.value.trim()) {
-    lyricsInputExpanded.value = false;
-  }
-}
 async function getHistory() {
   loadingHistory.value = true;
   const { data } = await axios.post(`/agents/getMemory`, {
@@ -337,6 +331,48 @@ async function handleAudioFileChange(e: Event) {
   }
 }
 
+// ---- 纯人声上传（可选，口型参考）----
+const vocalInputRef = ref<HTMLInputElement>();
+const vocalUploaded = ref(false);
+const vocalName = ref("");
+
+function triggerVocalUpload() {
+  vocalInputRef.value?.click();
+}
+
+async function handleVocalFileChange(e: Event) {
+  const files = (e.target as HTMLInputElement).files;
+  if (!files || files.length === 0) return;
+  const file = files[0];
+  if (file.size > 50 * 1024 * 1024) {
+    window.$message.warning("音频文件过大，请上传50MB以内的文件");
+    return;
+  }
+  uploading.value = true;
+  try {
+    const reader = new FileReader();
+    const base64 = await new Promise<string>((resolve, reject) => {
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    await axios.post("/musicAgent/uploadAudio", {
+      projectId: project.value?.id,
+      fileName: file.name,
+      base64,
+      type: "vocal",
+    });
+    vocalUploaded.value = true;
+    vocalName.value = file.name;
+    window.$message.success("纯人声上传成功");
+  } catch (err: any) {
+    window.$message.error(err?.message ?? "纯人声上传失败");
+  } finally {
+    uploading.value = false;
+    (e.target as HTMLInputElement).value = "";
+  }
+}
+
 async function getAudioStatus() {
   if (!project.value?.id) return;
   const projectData = await axios.post("/project/getProject");
@@ -344,6 +380,10 @@ async function getAudioStatus() {
   if (cur?.musicFilePath) {
     audioUploaded.value = true;
     audioName.value = cur.musicFilePath.split("/").pop() || "音频文件";
+  }
+  if (cur?.vocalFilePath) {
+    vocalUploaded.value = true;
+    vocalName.value = cur.vocalFilePath.split("/").pop() || "纯人声";
   }
 }
 
@@ -364,6 +404,7 @@ async function getFlowData() {
     flowData.value.mvStyle = data.mvStyle || "";
     flowData.value.script = data.script || "";
     flowData.value.mvDesign = data.mvDesign || null;
+    flowData.value.lyricsAlignedBy = data.lyricsAlignedBy || "";
     if (data.script) buildMvTimeline();
   }
 }
@@ -383,6 +424,9 @@ function segmentTypeLabel(type: string) {
     atmosphere: "氛围",
     crowd: "观众",
     dance: "舞蹈参考",
+    intro: "前奏",
+    interlude: "间奏",
+    outro: "尾奏",
   };
   return map[type] || type;
 }
@@ -394,6 +438,9 @@ function segmentTypeTheme(type: string) {
     atmosphere: "default",
     crowd: "success",
     dance: "danger",
+    intro: "default",
+    interlude: "default",
+    outro: "default",
   };
   return map[type] || "default";
 }
@@ -441,6 +488,24 @@ function mvStyleLabel(style: string) {
         white-space: nowrap;
       }
     }
+    .audioBarDivider {
+      width: 1px;
+      height: 16px;
+      background: var(--td-text-color-placeholder);
+      flex-shrink: 0;
+    }
+    .vocalTip {
+      width: 16px;
+      height: 16px;
+      line-height: 16px;
+      text-align: center;
+      border-radius: 50%;
+      border: 1px solid var(--td-brand-color);
+      color: var(--td-brand-color);
+      font-size: 12px;
+      cursor: help;
+      flex-shrink: 0;
+    }
     .genBtn {
       margin-left: auto;
       flex-shrink: 0;
@@ -451,30 +516,6 @@ function mvStyleLabel(style: string) {
     display: flex;
     flex-direction: column;
   }
-  .lyricsInputBar {
-    flex-shrink: 0;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--td-border-level-1-color);
-    .lyricsTextarea {
-      width: 100%;
-      border: 1px solid var(--td-border-level-2-color);
-      border-radius: 6px;
-      padding: 8px;
-      font-size: 13px;
-      line-height: 1.5;
-      color: var(--td-text-color-primary);
-      background: var(--td-bg-color-container);
-      resize: vertical;
-      transition: height 0.2s;
-      &:focus {
-        outline: none;
-        border-color: var(--td-brand-color);
-      }
-      &::placeholder {
-        color: var(--td-text-color-placeholder);
-      }
-    }
-  }
   .tabsWrapper {
     height: 100%;
     position: relative;
@@ -483,6 +524,9 @@ function mvStyleLabel(style: string) {
       top: 8px;
       right: 16px;
       z-index: 10;
+    }
+    .alignBadge {
+      margin-bottom: 8px;
     }
     :deep(.t-tabs) {
       height: 100%;

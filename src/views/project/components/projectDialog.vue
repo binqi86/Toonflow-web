@@ -94,7 +94,7 @@
                 </div>
               </div>
             </t-form-item>
-            <t-form-item>
+            <t-form-item v-if="!isMusicMv">
               <div class="directorManual">
                 <div class="directorManualHeader">
                   <span>{{ $t("workbench.project.dialog.directorManual") }}</span>
