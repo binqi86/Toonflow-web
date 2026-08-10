@@ -106,8 +106,11 @@
       </Pane>
       <Pane :size="70" :min-size="30" class="data">
         <div class="tabsWrapper">
-          <div v-if="flowData.mvStyle" class="styleBadge">
-            <i-tag size="small" theme="primary">MV风格：{{ mvStyleLabel(flowData.mvStyle) }}</i-tag>
+          <div v-if="flowData.mvStyle || flowData.mvRange" class="styleBadge">
+            <i-tag v-if="flowData.mvStyle" size="small" theme="primary">MV风格：{{ mvStyleLabel(flowData.mvStyle) }}</i-tag>
+            <i-tag v-if="flowData.mvRange" size="small" :theme="flowData.mvRange.mode === 'segment' ? 'warning' : 'success'">
+              制作范围：{{ mvRangeLabel(flowData.mvRange) }}
+            </i-tag>
           </div>
           <t-tabs v-model="currentTable">
             <t-tab-panel :value="1" :label="`音乐时间线 (${lyrics.length})`">
@@ -118,7 +121,7 @@
                     <i-tag size="small" theme="success">已用 Qwen3-ForcedAligner 精确对齐（毫秒级）</i-tag>
                   </div>
                   <div class="lyricsList">
-                    <div v-for="(item, index) in lyrics" :key="item.id || index" class="lyricRow">
+                    <div v-for="(item, index) in lyrics" :key="item.id || index" class="lyricRow" :class="{ dimmed: isDimmed(item) }">
                       <div class="lyricTime">{{ formatTime(item.startTime) }} - {{ formatTime(item.endTime) }}</div>
                       <div class="lyricText">{{ item.text }}</div>
                       <div class="lyricSection">
@@ -133,7 +136,10 @@
               <div class="panelContent">
                 <div v-if="timeline" class="timelineInfo">
                   <t-tag theme="primary" size="small" class="timelineTag">按歌词时间轴分组成 {{ timeline.groups }} 组</t-tag>
-                  <t-tag :theme="timeline.aligned ? 'success' : 'warning'" size="small" class="timelineTag">
+                  <t-tag v-if="timeline.mvRange?.mode === 'segment'" :theme="timeline.aligned ? 'success' : 'warning'" size="small" class="timelineTag">
+                    制作范围 {{ formatDur(timeline.mvRange.startTime) }}-{{ formatDur(timeline.mvRange.endTime) }} · 片段总时长 {{ formatDur(timeline.totalSpan) }}
+                  </t-tag>
+                  <t-tag v-else :theme="timeline.aligned ? 'success' : 'warning'" size="small" class="timelineTag">
                     分组总时长 {{ formatDur(timeline.totalSpan) }} {{ timeline.aligned ? "=" : "≠" }} 音频总时长 {{ formatDur(timeline.audioDuration) }}
                   </t-tag>
                   <span v-if="timeline.scriptId" class="timelineHint">已按分组对齐剧本，可进入生产页导演规划（每组=一条视频）</span>
@@ -203,6 +209,7 @@ watch(status, (newStatus) => {
     axios.post("/musicAgent/getMusicFlowData", { projectId: project.value?.id }).then(({ data }) => {
       if (data?.script) flowData.value.script = data.script;
       if (data?.mvDesign) flowData.value.mvDesign = data.mvDesign;
+      if (data?.mvRange) flowData.value.mvRange = data.mvRange;
       // 剧本生成完成后，自动按歌词时间轴构建分组并展示核对信息
       if (data?.script) buildMvTimeline();
     }).catch(() => {});
@@ -210,7 +217,7 @@ watch(status, (newStatus) => {
 });
 
 // ---- 时间线分组（buildTimeline）----
-const timeline = ref<{ groups: number; totalSpan: number; audioDuration: number; aligned: boolean; scriptId: number | null } | null>(null);
+const timeline = ref<{ groups: number; totalSpan: number; audioDuration: number; aligned: boolean; scriptId: number | null; mvRange: any } | null>(null);
 
 async function buildMvTimeline() {
   if (!project.value?.id || !flowData.value.script) return;
@@ -223,6 +230,7 @@ async function buildMvTimeline() {
         audioDuration: data.audioDuration,
         aligned: data.aligned,
         scriptId: data.scriptId ?? null,
+        mvRange: data.mvRange ?? null,
       };
     }
     // 展示对齐分组后的剧本（后端已存 mvTimelineScript）
@@ -405,6 +413,7 @@ async function getFlowData() {
     flowData.value.script = data.script || "";
     flowData.value.mvDesign = data.mvDesign || null;
     flowData.value.lyricsAlignedBy = data.lyricsAlignedBy || "";
+    flowData.value.mvRange = data.mvRange || null;
     if (data.script) buildMvTimeline();
   }
 }
@@ -463,6 +472,21 @@ const MV_STYLE_NAMES: Record<string, string> = {
 };
 function mvStyleLabel(style: string) {
   return MV_STYLE_NAMES[style] || style;
+}
+
+// 制作范围中文名
+function mvRangeLabel(range: any) {
+  if (range?.mode === "segment" && Number.isFinite(range.startTime) && Number.isFinite(range.endTime)) {
+    return `${formatTime(range.startTime)}-${formatTime(range.endTime)} 片段`;
+  }
+  return "整首歌";
+}
+
+// 选段模式下，选段外的歌词行置灰
+function isDimmed(item: { startTime: number; endTime: number }) {
+  const r = flowData.value.mvRange;
+  if (r?.mode !== "segment" || !Number.isFinite(r.startTime) || !Number.isFinite(r.endTime)) return false;
+  return !(item.endTime > r.startTime && item.startTime < r.endTime);
 }
 </script>
 
@@ -524,6 +548,9 @@ function mvStyleLabel(style: string) {
       top: 8px;
       right: 16px;
       z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
     .alignBadge {
       margin-bottom: 8px;
@@ -557,6 +584,9 @@ function mvStyleLabel(style: string) {
       padding: 8px 12px;
       border-radius: 6px;
       background: var(--td-bg-color-container);
+      &.dimmed {
+        opacity: 0.4;
+      }
       .lyricTime {
         flex-shrink: 0;
         font-size: 12px;
